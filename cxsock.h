@@ -47,7 +47,7 @@ int make_listener_sock(const char *port_str, int backlog);
 
 // creates a binded dgram socket with the current address, and the given port,
 // sets the output res_out with the matching address info used
-int make_dgram_sock(const char *port_str, struct addrinfo **res_out);
+int make_dgram_sock(const char *host_ptr, const char *port_str, int flags, struct addrinfo **res_out);
 
 
 
@@ -201,12 +201,12 @@ int make_listener_sock(const char *port_str, int backlog) {
     return -1;
 }
 
-int make_dgram_sock(const char *port_str, struct addrinfo **res_out) {
+int make_dgram_sock(const char *host_ptr, const char *port_str, int flags, struct addrinfo **res_out) {
     struct addrinfo *res = NULL;
 
     int status;
 
-    if( (status = get_dgram_addrinfo_any(NULL, port_str, AI_PASSIVE, &res)) < 0 ) {
+    if( (status = get_dgram_addrinfo_any(host_ptr, port_str, flags, &res)) < 0 ) {
         fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
         return -1;
     }
