@@ -12,10 +12,10 @@ and sets the `res_out` pointer(if it's not `NULL`) to the utilized address info(
 Returns negative number if failure occured
 
 2. `ssize_t sendall(int sockfd, const void *buf, size_t len, int flags)`
-blocks the main thread until it sends all the data
+blocks the caller thread until it sends all the data
 
 3. `ssize_t recvall(int sockfd, void *buf, size_t len, int flags)`
-blocks the main thread until it reads everything from the net socket
+blocks the caller thread until it reads everything from the net socket
 
 4. `void pack32(const void *data, char *out)`
 packs the 32 bit data 0 -> LSB to 4 -> MSB(little endian)

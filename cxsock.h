@@ -16,10 +16,7 @@ typedef struct streamconn_t {
 
 int is_big_endian();
 
-// closes the connection(fd) and frees all the resources that has been allocated
-void close_streamconn(streamconn connection);
 
-int make_socket(const char *host_str, const char *port_str, int socktype, int flags, struct addrinfo **res_out);
 
 int get_addrinfo_any(const char *host_str, const char *port_str, int socktype,
                             int flags, struct addrinfo **res_out);
@@ -28,21 +25,42 @@ int get_addrinfo_any(const char *host_str, const char *port_str, int socktype,
 int get_stream_addrinfo_any(const char *host_str, const char *port_str,
                             int flags, struct addrinfo **res_out);
 
-// blocks the main thread until it sends all the data
-ssize_t sendall(int sockfd, const void *buf, size_t len, int flags);
+// a simpler getaddrinfo that assumes you are using a SOCK_DGRAM
+int get_dgram_addrinfo_any(const char *host_str, const char *port_str,
+                            int flags, struct addrinfo **res_out);
 
-// blocks the main thread until it reads everything from the net socket
-ssize_t recvall(int sockfd, void *buf, size_t len, int flags);
+#define gethostaddrinfo(PORT, HINTS, RES) getaddrinfo(NULL, (PORT), (HINTS), (RES))
 
-// blocks the main thread until it fills the buffer at least with the length of "part_len"
-ssize_t recvpart(int sockfd, void *buf, size_t buf_len, size_t part_len, int flags);
+
+
+// closes the connection(fd) and frees all the resources that has been allocated
+void close_streamconn(streamconn connection);
+
+int stream_connect(const char *host_str, const char *port_str);
+
+
+
+int make_socket(const char *host_str, const char *port_str, int socktype, int flags, struct addrinfo **res_out);
 
 // creates a listener socket with the current address, and the given port
 int make_listener_sock(const char *port_str, int backlog);
 
-#define gethostaddrinfo(PORT, HINTS, RES) getaddrinfo(NULL, (PORT), (HINTS), (RES))
+// creates a binded dgram socket with the current address, and the given port,
+// sets the output res_out with the matching address info used
+int make_dgram_sock(const char *port_str, struct addrinfo **res_out);
 
-int stream_connect(const char *host_str, const char *port_str);
+
+
+// blocks the caller thread until it sends all the data
+ssize_t sendall(int sockfd, const void *buf, size_t len, int flags);
+
+// blocks the caller thread until it reads everything from the net socket
+ssize_t recvall(int sockfd, void *buf, size_t len, int flags);
+
+// blocks the caller thread until it fills the buffer at least with the length of "part_len"
+ssize_t recvpart(int sockfd, void *buf, size_t buf_len, size_t part_len, int flags);
+
+
 
 // packs the 32 bit data 0 -> LSB to 4 -> MSB
 void pack32(const void *data, char *out);
@@ -55,6 +73,7 @@ void pack64(const void *data, char *out);
 
 // unpacks the 64 bit data from 0 -> LSB to 8 -> MSB
 void unpack64(const char *packed, void *out);
+
 
 #define pack32_inplace(...) do { \
     void *v[] = { __VA_ARGS__ }; \
@@ -70,6 +89,8 @@ void unpack64(const char *packed, void *out);
 
 
 #endif // _CXSOCKS_H
+
+#define CXSOCK_IMPL_ONCE
 
 #ifdef CXSOCK_IMPL_ONCE
 #undef CXSOCK_IMPL_ONCE
@@ -95,7 +116,33 @@ void close_streamconn(streamconn conn) {
     freeaddrinfo(conn.info);
 }
 
-int make_socket(const char *host_str, const char *port_str, int socktype, int flags, struct addrinfo **res_out) {
+
+int get_addrinfo_any(const char *host_str, const char *port_str, int socktype,
+                            int flags, struct addrinfo **res_out) {
+    struct addrinfo hints;
+
+    memset(&hints, 0, sizeof(hints));
+
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = socktype;
+    hints.ai_flags = flags;
+
+    return getaddrinfo(host_str, port_str, &hints, res_out);
+}
+
+int get_stream_addrinfo_any(const char *host_str, const char *port_str,
+                            int flags, struct addrinfo **res_out) {
+    return get_addrinfo_any(host_str, port_str, SOCK_STREAM, flags, res_out);
+}
+
+int get_dgram_addrinfo_any(const char *host_str, const char *port_str,
+                            int flags, struct addrinfo **res_out) {
+    return get_addrinfo_any(host_str, port_str, SOCK_DGRAM, flags, res_out);
+}
+
+
+int make_socket(const char *host_str, const char *port_str,
+                int socktype, int flags, struct addrinfo **res_out) {
     struct addrinfo *res;
     if(get_addrinfo_any(host_str, port_str, socktype, flags, &res) < 0) 
         return -1;
@@ -119,76 +166,6 @@ int make_socket(const char *host_str, const char *port_str, int socktype, int fl
     return -1;
 }
 
-int get_addrinfo_any(const char *host_str, const char *port_str, int socktype,
-                            int flags, struct addrinfo **res_out) {
-    struct addrinfo hints;
-
-    memset(&hints, 0, sizeof(hints));
-
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = socktype;
-    hints.ai_flags = flags;
-
-    return getaddrinfo(host_str, port_str, &hints, res_out);
-}
-
-int get_stream_addrinfo_any(const char *host_str, const char *port_str,
-                            int flags, struct addrinfo **res_out) {
-    return get_addrinfo_any(host_str, port_str, SOCK_STREAM, flags, res_out);
-}
-
-ssize_t sendall(int sockfd, const void *buf, size_t len, int flags) {
-    size_t send_len = 0;
-    ssize_t status;
-
-    do {
-        status = send(sockfd, buf + send_len, len - send_len, flags);
-
-        if(status < 0)
-            return status;
-
-        send_len += status;
-    } while(send_len < len);
-
-    return send_len;
-}
-
-ssize_t recvall(int sockfd, void *buf, size_t len, int flags) {
-    size_t recv_len = 0;
-    ssize_t status;
-
-    do {
-        status = recv(sockfd, buf + recv_len, len - recv_len, flags);
-
-        if(status <= 0)
-            return status;
-
-        recv_len += status;
-    } while(recv_len < len);
-
-    return recv_len;
-}
-
-ssize_t recvpart(int sockfd, void *buf, size_t buf_len, size_t part_len, int flags) {
-    if(buf_len < part_len)
-        return -1;
-    // else
-
-    size_t recv_len = 0;
-    ssize_t status;
-
-    do {
-        status = recv(sockfd, buf + recv_len, buf_len - recv_len, flags);
-
-        if(status <= 0)
-            return status;
-
-        recv_len += status;
-    } while(recv_len < part_len);
-
-    return recv_len;
-}
-
 int make_listener_sock(const char *port_str, int backlog) {
     struct addrinfo *res = NULL;
 
@@ -201,6 +178,9 @@ int make_listener_sock(const char *port_str, int backlog) {
 
     for(struct addrinfo *p = res; p != NULL; p = p->ai_next) {
         int sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+
+        if(sockfd < 0)
+            continue;
 
         if(bind(sockfd, p->ai_addr, p->ai_addrlen) < 0) {
             close(sockfd);
@@ -222,6 +202,89 @@ int make_listener_sock(const char *port_str, int backlog) {
     freeaddrinfo(res);
     return -1;
 }
+
+int make_dgram_sock(const char *port_str, struct addrinfo **res_out) {
+    struct addrinfo *res = NULL;
+
+    int status;
+
+    if( (status = get_dgram_addrinfo_any(NULL, port_str, AI_PASSIVE, &res)) < 0 ) {
+        fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
+        return -1;
+    }
+
+    for(struct addrinfo *p = res; p != NULL; p = p->ai_next) {
+        int sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+
+        if(sockfd < 0)
+            continue;
+        // else
+
+        if(res_out != NULL)
+            *res_out = p;
+        else
+            freeaddrinfo(res);
+
+        return sockfd;
+    }
+
+    freeaddrinfo(res);
+    return -1;
+}
+
+
+ssize_t sendall(int sockfd, const void *buf, size_t len, int flags) {
+    size_t send_len = 0;
+    ssize_t status;
+
+    do {
+        status = send(sockfd, (char*)buf + send_len, len - send_len, flags);
+
+        if(status < 0)
+            return status;
+
+        send_len += status;
+    } while(send_len < len);
+
+    return send_len;
+}
+
+ssize_t recvall(int sockfd, void *buf, size_t len, int flags) {
+    size_t recv_len = 0;
+    ssize_t status;
+
+    do {
+        status = recv(sockfd, (char*)buf + recv_len, len - recv_len, flags);
+
+        if(status <= 0)
+            return status;
+
+        recv_len += status;
+    } while(recv_len < len);
+
+    return recv_len;
+}
+
+ssize_t recvpart(int sockfd, void *buf, size_t buf_len, size_t part_len, int flags) {
+    if(buf_len < part_len)
+        return -1;
+    // else
+
+    size_t recv_len = 0;
+    ssize_t status;
+
+    do {
+        status = recv(sockfd, (char*)buf + recv_len, buf_len - recv_len, flags);
+
+        if(status <= 0)
+            return status;
+
+        recv_len += status;
+    } while(recv_len < part_len);
+
+    return recv_len;
+}
+
 
 int stream_connect(const char *host_str, const char *port_str) {
     struct addrinfo *res = NULL;
@@ -266,7 +329,7 @@ void unpack32(const char *packed, void *out) {
     for(size_t i = 0; i < sizeof(uint32_t); ++i)
         result |= ((uint32_t)packed[i]) << (i * 8);
 
-    uint32_t *cast_ptr = out;
+    uint32_t *cast_ptr = (uint32_t*)out;
     *cast_ptr = result;
 }
 
@@ -285,7 +348,7 @@ void unpack64(const char *packed, void *out) {
     for(size_t i = 0; i < sizeof(uint64_t); ++i)
         result |= ((uint64_t)packed[i]) << (i * 8);
 
-    uint64_t *cast_ptr = out;
+    uint64_t *cast_ptr = (uint64_t*)out;
     *cast_ptr = result;
 }
 
