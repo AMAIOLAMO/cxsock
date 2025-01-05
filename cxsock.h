@@ -90,8 +90,6 @@ void unpack64(const char *packed, void *out);
 
 #endif // _CXSOCKS_H
 
-#define CXSOCK_IMPL_ONCE
-
 #ifdef CXSOCK_IMPL_ONCE
 #undef CXSOCK_IMPL_ONCE
 
